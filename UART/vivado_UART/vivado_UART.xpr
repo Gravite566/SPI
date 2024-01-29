@@ -99,6 +99,7 @@
       </File>
       <File Path="$PSRCDIR/sources_1/imports/UART/UART_SEND_generic.vhd">
         <FileInfo>
+          <Attr Name="AutoDisabled" Val="1"/>
           <Attr Name="ImportPath" Val="$PPRDIR/../UART_SEND_generic.vhd"/>
           <Attr Name="ImportTime" Val="1706537164"/>
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -107,6 +108,7 @@
       </File>
       <File Path="$PSRCDIR/sources_1/imports/SPI/computer_IF.vhd">
         <FileInfo>
+          <Attr Name="AutoDisabled" Val="1"/>
           <Attr Name="ImportPath" Val="$PPRDIR/../../SPI/computer_IF.vhd"/>
           <Attr Name="ImportTime" Val="1706540486"/>
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -115,6 +117,7 @@
       </File>
       <File Path="$PSRCDIR/sources_1/imports/UART/toplevel.vhd">
         <FileInfo>
+          <Attr Name="AutoDisabled" Val="1"/>
           <Attr Name="ImportPath" Val="$PPRDIR/../toplevel.vhd"/>
           <Attr Name="ImportTime" Val="1706537195"/>
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -123,8 +126,7 @@
       </File>
       <Config>
         <Option Name="DesignMode" Val="RTL"/>
-        <Option Name="TopModule" Val="toplevel"/>
-        <Option Name="TopAutoSet" Val="TRUE"/>
+        <Option Name="TopModule" Val="UART_RECV_generic"/>
       </Config>
     </FileSet>
     <FileSet Name="constrs_1" Type="Constrs" RelSrcDir="$PSRCDIR/constrs_1" RelGenDir="$PGENDIR/constrs_1">
