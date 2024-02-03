@@ -30,7 +30,7 @@
 --  0xD0   addr            lenMSB  lenLSB                 : packet read  : resp (2) ACKstreamStart + ACKstreamEnd
 --  0xE0   addr            lenMSB  lenLSB  <len x data8>  : packet write : resp (2) ACKshort       + ACKstreamEnd
 --  0xF0                                                  : Invalid op   : resp (1) ACKInvalidInstruction (internal use)
---  others                                                : reserved     : resp (1) ACKInvalidInstruction 
+--  others                                                : reserved     : resp (1) ACKInvalidInstruction
 --
 -- (1) : in case of address or timeout error, response will be ACKAddressError or ACKtimeout
 -- (2) : in case of address or timeout error on the first data word, response will be ACKAddressError or ACKtimeout, if
@@ -41,7 +41,7 @@
 --
 --
 -- response decoding :
---  bit 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 : followed by 
+--  bit 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 : followed by
 --      0   0   0   0   0   0   0   0 : -               : Nothing to say
 --      0   0   0   1   -   -   -   - : -               : Reserved
 --      0   0   1   0   -   -   -   f : -               : ACKAddressError
@@ -71,34 +71,36 @@ entity computer_IF is
     Generic ( PROJECT_ID    : STD_LOGIC_VECTOR(15 downto 0) :=(others => '0');  -- used to identify architecture in a standard way
 	          TIMEOUT       : INTEGER := 100000);             -- peripheral ACK timeout in clock periods
 
-    Port (  clk       : in  STD_LOGIC;                         -- system clock
-            reset     : in  STD_LOGIC;                         -- system reset (active high)
-            RXdat     : in  STD_LOGIC_VECTOR( 7 downto 0);     -- master input data
-            RXen      : in  STD_LOGIC;                         -- master input data strobe
-            RXrdy     : out STD_LOGIC;                         -- master input data ready
-            TXdat     : out STD_LOGIC_VECTOR( 7 downto 0);     -- master output data
-            TXen      : out STD_LOGIC;                         -- master output data strobe
-            TXrdy     : in  STD_LOGIC := '1';                  -- master output data redy
-            lst_CMD_b : out STD_LOGIC;                         -- set when expecting last instruction byte, cleared otherwise FIXME : need to clarify behavior
+    Port (  clk        : in  STD_LOGIC;                         -- system clock
+            reset      : in  STD_LOGIC;                         -- system reset (active high)
+            RXdat      : in  STD_LOGIC_VECTOR( 7 downto 0);     -- master input data
+            RXen       : in  STD_LOGIC;                         -- master input data strobe
+            RXrdy      : out STD_LOGIC;                         -- master input data ready
+            TXdat      : out STD_LOGIC_VECTOR( 7 downto 0);     -- master output data
+            TXen       : out STD_LOGIC;                         -- master output data strobe
+            TXrdy      : in  STD_LOGIC := '1';                  -- master output data redy
+            lst_resp_b : out STD_LOGIC;                         -- set simultaneously with TXen when exposing last byte of an instruction response, cleared otherwise
+                                                                -- lst_resp_b clear will ALWAYS happen before RXrdy is set for the first byte of the next instruction
 
-            addr      : out STD_LOGIC_VECTOR(15 downto 0);     -- local data address
-            dout      : out STD_LOGIC_VECTOR(15 downto 0);     -- data to be written locally
-            din       : in  STD_LOGIC_VECTOR(15 downto 0);     -- local data to be responded
 
-            d_wen     : out STD_LOGIC;                         -- local data write enable
-            d_wack    : in  STD_LOGIC := '1';                  -- local data write ack
-            d_ren     : out STD_LOGIC;                         -- local data read enable
-            d_rack    : in  STD_LOGIC := '1';                  -- local data read ack
+            addr       : out STD_LOGIC_VECTOR(15 downto 0);     -- local data address
+            dout       : out STD_LOGIC_VECTOR(15 downto 0);     -- data to be written locally
+            din        : in  STD_LOGIC_VECTOR(15 downto 0);     -- local data to be responded
 
-            p_empty_n : out STD_LOGIC;                         -- stream packet data available for write to system
-            p_read    : in  STD_LOGIC := '1';                  -- stream packet data write ack from system
-            p_full_n  : out STD_LOGIC;                         -- stream packet room available for read from system
-            p_write   : in  STD_LOGIC := '1';                  -- stream packet data read from system
-            p_start   : out STD_LOGIC;                         -- packet start event (address is valid) 
-            p_stop    : out STD_LOGIC;                         -- packet stop event
+            d_wen      : out STD_LOGIC;                         -- local data write enable
+            d_wack     : in  STD_LOGIC := '1';                  -- local data write ack
+            d_ren      : out STD_LOGIC;                         -- local data read enable
+            d_rack     : in  STD_LOGIC := '1';                  -- local data read ack
 
-            err_mstmx : in  STD_LOGIC := '0';                  -- set to trigger a fifo full error to master
-            err_addr  : in  STD_LOGIC := '0');                 -- set to trigger an invalid address error
+            p_empty_n  : out STD_LOGIC;                         -- stream packet data available for write to system
+            p_read     : in  STD_LOGIC := '1';                  -- stream packet data write ack from system
+            p_full_n   : out STD_LOGIC;                         -- stream packet room available for read from system
+            p_write    : in  STD_LOGIC := '1';                  -- stream packet data read from system
+            p_start    : out STD_LOGIC;                         -- packet start event (address is valid)
+            p_stop     : out STD_LOGIC;                         -- packet stop event
+
+            err_mstmx  : in  STD_LOGIC := '0';                  -- set to trigger a fifo full error to master
+            err_addr   : in  STD_LOGIC := '0');                 -- set to trigger an invalid address error
 end computer_IF;
 
 architecture Behavioral of computer_IF is
@@ -144,7 +146,7 @@ architecture Behavioral of computer_IF is
                              exp_slave_r16b_data,    -- expecting remaining read response for 16b data from slave
                              exp_slave_r8b_data,     -- expecting remaining read response for 8b data from slave
                              exp_slave_r8b_wACK,     -- expecting remaining write ack for 8b data from slave
-                             
+
                              wait_master_1st_ACK_rd, -- waiting for master to read (eventually first) ACK
                              wait_master_end_ACK_rd, -- waiting for master to read (eventually first) ACK
                              wait_master_MSB_rd,     -- waiting for master to read while 16bits MSB data
@@ -152,7 +154,7 @@ architecture Behavioral of computer_IF is
                              wait_master_8b_rd,      -- waiting for master to read while 8bits pending in buffer
                              wait_master_lenMSB_rd,  -- waiting for master to read data length MSB
                              wait_master_lenLSB_rd,  -- waiting for master to read data length LSB
-                             
+
                              unexpected_state);      -- this state should NEVER happen !!!
     signal instr_decoder : instr_decoder_t;       -- the signal that contains the current state
 
@@ -178,7 +180,7 @@ architecture Behavioral of computer_IF is
     signal p_empty_ni             : std_logic;                     -- local copy of d_wen for internal use
     signal p_full_ni              : std_logic;                     -- local copy of d_ren for internal use
 
-    signal data_buffer            : std_logic_vector(15 downto 0); -- the signal in which we store data to send to master 
+    signal data_buffer            : std_logic_vector(15 downto 0); -- the signal in which we store data to send to master
     signal timeout_cnt            : integer range 0 to TIMEOUT;    -- the counter to check for slave timeout
 
 
@@ -190,8 +192,8 @@ architecture Behavioral of computer_IF is
     signal ACKstreamEnd           : std_logic_vector(7 downto 0); -- the message sent for ACKstreamsEnd
     signal ACKAddressError        : std_logic_vector(7 downto 0); -- the message sent for ACKAddressError
     signal ACKNullSize            : std_logic_vector(7 downto 0); -- the message sent for ACKNullSize
-    
-    
+
+
 
 
 
@@ -208,7 +210,7 @@ begin
                 case instr_decoder is
                     ------------------------------------------------------------------------
                     -- In this set of states, we are waiting for data coming from master
-                    ------------------------------------------------------------------------ 
+                    ------------------------------------------------------------------------
                     when exp_cmd          =>
                         if RXen = '1' and RXrdyi = '1' then
             			    case RXdat is
@@ -216,7 +218,7 @@ begin
                                     instr_decoder <= exp_16b_addr_MSB;
                                 when opcode_PCKT_EXC  | opcode_PCKT_RD | opcode_PCKT_WR =>
                                     instr_decoder <= exp_8b_addr;
-                            --    when opcode_NOP | opcode_ERR_CLR | opcode_RD_IFVER | opcode_RD_PROJID => 
+                            --    when opcode_NOP | opcode_ERR_CLR | opcode_RD_IFVER | opcode_RD_PROJID =>
                             --        instr_decoder <= wait_master_1st_ACK_rd;
                                 when others =>
             					    instr_decoder <= wait_master_1st_ACK_rd;
@@ -332,7 +334,7 @@ begin
 
                     ------------------------------------------------------------------------
                     -- In this set of states, we are waiting for activity from slave
-                    ------------------------------------------------------------------------                     
+                    ------------------------------------------------------------------------
                     when exp_slave_f16b_wACK =>
                         if d_wack = '1' or err_addr='1' or err_timeout='1' then
                             case curr_instruction is
@@ -342,7 +344,7 @@ begin
                                     instr_decoder <= unexpected_state;
                             end case;
                         end if;
-                        
+
                     when exp_slave_f16b_data =>
                         if d_rack = '1' or err_addr='1' or err_timeout='1' then
                             case curr_instruction is
@@ -362,7 +364,7 @@ begin
                                     instr_decoder <= unexpected_state;
                             end case;
                         end if;
-                        
+
                     when exp_slave_f8b_data =>
                         if p_write = '1' or err_addr='1' or err_timeout='1' then
                             case curr_instruction is
@@ -374,19 +376,19 @@ begin
                         end if;
 
                     when exp_slave_r16b_wACK =>
-                        if d_wack = '1' or err_addr='1' or err_timeout='1' then                                
+                        if d_wack = '1' or err_addr='1' or err_timeout='1' then
                             case curr_instruction is
                                 when opcode_WR_MAP | opcode_WR_FIFO =>
                                     if rem_data_xfer = 0 then
                                         instr_decoder <= wait_master_end_ACK_rd;
                                     else
-                                        instr_decoder <= exp_rem_16b_data_MSB;                                        
+                                        instr_decoder <= exp_rem_16b_data_MSB;
                                     end if;
                                 when others =>
                                     instr_decoder <= unexpected_state;
                             end case;
                         end if;
-                        
+
                     when exp_slave_r16b_data =>
                         if d_rack = '1' or err_addr='1' or err_timeout='1' then
                             case curr_instruction is
@@ -404,24 +406,24 @@ begin
                                     if rem_data_xfer = 0 then
                                         instr_decoder <= wait_master_end_ACK_rd;
                                     else
-                                        instr_decoder <= exp_rem_8b_data;                                        
+                                        instr_decoder <= exp_rem_8b_data;
                                     end if;
                                 when opcode_PCKT_EXC =>
                                     if p_read = '1' then
-                                        instr_decoder <= exp_slave_r8b_data;                                        
+                                        instr_decoder <= exp_slave_r8b_data;
                                     else
-                                        instr_decoder <= wait_master_8b_rd;                                                                                
+                                        instr_decoder <= wait_master_8b_rd;
                                     end if;
                                 when others =>
                                     instr_decoder <= unexpected_state;
                             end case;
                         end if;
-                        
+
                     when exp_slave_r8b_data =>
                         if p_write = '1' or err_addr='1' or err_timeout='1' then
                             case curr_instruction is
                                 when opcode_PCKT_RD | opcode_PCKT_EXC =>
-                                    instr_decoder <= wait_master_8b_rd;                                        
+                                    instr_decoder <= wait_master_8b_rd;
                                 when others =>
                                     instr_decoder <= unexpected_state;
                             end case;
@@ -429,9 +431,9 @@ begin
 
                     ------------------------------------------------------------------------
                     -- In this set of states, we are waiting for master to read a response
-                    ------------------------------------------------------------------------                     
-                    
-                    when wait_master_1st_ACK_rd => 
+                    ------------------------------------------------------------------------
+
+                    when wait_master_1st_ACK_rd =>
                         if TXeni = '1' and TXrdy = '1' then
                             case curr_instruction is
                                 when opcode_NOP | opcode_ERR_CLR | opcode_WR_SINGLE =>
@@ -482,8 +484,8 @@ begin
                                     instr_decoder <= exp_cmd;
                             end case;
                         end if;
-                    
-                    when wait_master_end_ACK_rd => 
+
+                    when wait_master_end_ACK_rd =>
                         if TXeni = '1' and TXrdy = '1' then
                             case curr_instruction is
                                 when opcode_RD_MAP | opcode_RD_FIFO | opcode_WR_MAP | opcode_WR_FIFO | opcode_PCKT_EXC | opcode_PCKT_RD | opcode_PCKT_WR =>
@@ -493,12 +495,12 @@ begin
                             end case;
                         end if;
 
-                    when wait_master_MSB_rd => 
+                    when wait_master_MSB_rd =>
                         if TXeni = '1' and TXrdy = '1' then
                             instr_decoder <= wait_master_LSB_rd;
                         end if;
 
-                    when wait_master_LSB_rd => 
+                    when wait_master_LSB_rd =>
                         if TXeni = '1' and TXrdy = '1' then
                             case curr_instruction is
                                 when opcode_RD_IFVER | opcode_RD_PROJID | opcode_RD_SINGLE =>
@@ -516,7 +518,7 @@ begin
                             end case;
                         end if;
 
-                    when wait_master_8b_rd => 
+                    when wait_master_8b_rd =>
                         if TXeni = '1' and TXrdy = '1' then
                             case curr_instruction is
                                 when opcode_PCKT_EXC =>
@@ -538,12 +540,12 @@ begin
                             end case;
                         end if;
 
-                    when wait_master_lenMSB_rd => 
+                    when wait_master_lenMSB_rd =>
                         if TXeni = '1' and TXrdy = '1' then
                             instr_decoder <= wait_master_lenLSB_rd;
                         end if;
 
-                    when wait_master_lenLSB_rd => 
+                    when wait_master_lenLSB_rd =>
                         if TXeni = '1' and TXrdy = '1' then
                             instr_decoder <= exp_cmd;
                         end if;
@@ -592,20 +594,20 @@ begin
                         rem_data_xfer <= rem_data_xfer - 1;
                     end if;
 
---                when exp_slave_r16b_wACK | exp_slave_f16b_wACK =>  -- for WR_SINGLE (with no effect), WR_MAP, WR_FIFO 
+--                when exp_slave_r16b_wACK | exp_slave_f16b_wACK =>  -- for WR_SINGLE (with no effect), WR_MAP, WR_FIFO
 --                    if d_wack = '1' or err_addr='1' or err_timeout='1' then
 --                        rem_data_xfer <= rem_data_xfer - 1;
 --                    end if;
 
-                when exp_rem_16b_data_LSB | exp_first_16b_data_LSB => 
+                when exp_rem_16b_data_LSB | exp_first_16b_data_LSB =>
                     if RXen = '1' and RXrdyi = '1' then
                         rem_data_xfer <= rem_data_xfer - 1;
                     end if;
---                when exp_slave_r16b_data | exp_slave_f16b_data =>  -- for RD_SINGLE (with no effect), RD_MAP, RD_FIFO 
+--                when exp_slave_r16b_data | exp_slave_f16b_data =>  -- for RD_SINGLE (with no effect), RD_MAP, RD_FIFO
 --                    if d_rack = '1' or err_addr='1' or err_timeout='1' then
 --                        rem_data_xfer <= rem_data_xfer - 1;
 --                    end if;
-                when wait_master_LSB_rd => 
+                when wait_master_LSB_rd =>
                     if TXeni = '1' and TXrdy = '1' then
                         rem_data_xfer <= rem_data_xfer - 1;
                     end if;
@@ -619,52 +621,52 @@ begin
     begin
         if rising_edge(clk) then
             if reset = '1' then
-                lst_CMD_b <= '1';
+                lst_resp_b <= '1';
             else
                 if instr_decoder = wait_master_1st_ACK_rd then
                     case curr_instruction is
                         when opcode_RD_IFVER | opcode_RD_PROJID =>
-                            lst_CMD_b <= '0';
+                            lst_resp_b <= '0';
                         when opcode_RD_SINGLE =>
                             if TXrdy = '1' and TXeni = '1' then
-                                lst_CMD_b <= '0';
+                                lst_resp_b <= '0';
                             else
-                                lst_CMD_b <= err_address or err_timeout;
+                                lst_resp_b <= err_address or err_timeout;
                             end if;
                         when opcode_RD_MAP | opcode_RD_FIFO | opcode_WR_MAP | opcode_WR_FIFO | opcode_PCKT_EXC | opcode_PCKT_RD | opcode_PCKT_WR =>
                             if TXrdy = '1' and TXeni = '1' then
-                                lst_CMD_b <= '0';
+                                lst_resp_b <= '0';
                             elsif err_nullsize = '1' then
-                                lst_CMD_b <= '1';
+                                lst_resp_b <= '1';
                             else
-                                lst_CMD_b <= err_address or err_timeout;
+                                lst_resp_b <= err_address or err_timeout;
                             end if;
                         when others =>
                             if TXrdy = '1' and TXeni = '1' then
-                                lst_CMD_b <= '0';
+                                lst_resp_b <= '0';
                             else
-                                lst_CMD_b <= '1';
+                                lst_resp_b <= '1';
                             end if;
                     end case;
                 elsif instr_decoder = wait_master_LSB_rd then
                     case curr_instruction is
                         when opcode_RD_IFVER | opcode_RD_PROJID | opcode_RD_SINGLE =>
                             if TXrdy = '1' and TXeni = '1' then
-                                lst_CMD_b <= '0';
+                                lst_resp_b <= '0';
                             else
-                                lst_CMD_b <= '1';
+                                lst_resp_b <= '1';
                             end if;
                         when others =>
-                            lst_CMD_b <= '0';                        
+                            lst_resp_b <= '0';
                     end case;
                 elsif instr_decoder = wait_master_lenLSB_rd then
                     if TXrdy = '1' and TXeni = '1' then
-                        lst_CMD_b <= '0';
+                        lst_resp_b <= '0';
                     else
-                        lst_CMD_b <= '1';
+                        lst_resp_b <= '1';
                     end if;
                 else
-                    lst_CMD_b <= '0';
+                    lst_resp_b <= '0';
                 end if;
             end if;
         end if;
@@ -734,11 +736,11 @@ begin
                 TXeni <= '0';
             else
                 case instr_decoder is
-                    when wait_master_1st_ACK_rd | wait_master_end_ACK_rd | wait_master_MSB_rd | wait_master_LSB_rd | 
+                    when wait_master_1st_ACK_rd | wait_master_end_ACK_rd | wait_master_MSB_rd | wait_master_LSB_rd |
                          wait_master_8b_rd | wait_master_lenMSB_rd | wait_master_lenLSB_rd =>
                         if TXrdy = '1' and TXeni = '1' then
                             TXeni <= '0';
-                        else 
+                        else
                             TXeni <= '1';
                         end if;
                     when others =>
@@ -771,30 +773,30 @@ begin
                         elsif err_address = '1' then
                             TXdat <=ACKAddressError;
                         elsif err_nullsize = '1' then
-                            TXdat <= ACKNullSize;                            
+                            TXdat <= ACKNullSize;
                         else
                             case curr_instruction is
                                 when opcode_NOP | opcode_ERR_CLR | opcode_WR_SINGLE =>
                                     TXdat <=ACKshort;
                                 when opcode_WR_MAP | opcode_WR_FIFO | opcode_PCKT_WR =>
-                                    TXdat <= ACKshort;                                        
+                                    TXdat <= ACKshort;
                                 when opcode_RD_IFVER | opcode_RD_PROJID | opcode_RD_SINGLE =>
                                     TXdat <= ACKsingle;
                                 when opcode_RD_MAP | opcode_RD_FIFO | opcode_PCKT_EXC | opcode_PCKT_RD =>
-                                    TXdat <= ACKstreamStart;                                        
+                                    TXdat <= ACKstreamStart;
                                 when others =>
                                     TXdat <= ACKInvalidInstruction;
                             end case;
                         end if;
                     when wait_master_end_ACK_rd =>
                         TXdat <= ACKstreamEnd;
-                    
+
                     when wait_master_lenMSB_rd =>
                         TXdat <= std_logic_vector(to_unsigned(data_xfer_ok / 256, 8));
-                        
+
                     when wait_master_lenLSB_rd =>
                         TXdat <= std_logic_vector(to_unsigned(data_xfer_ok mod 256, 8));
-                        
+
                     when wait_master_8b_rd  =>
                         TXdat <= data_buffer( 7 downto 0);
 
@@ -810,7 +812,7 @@ begin
 --                                TXdat <= data_buffer(15 downto 8);
                             when others =>
                                 TXdat <= x"00";
-                        end case;                    
+                        end case;
                     when wait_master_LSB_rd =>
                         case curr_instruction is
                             when opcode_RD_IFVER  =>
@@ -995,11 +997,11 @@ begin
             if reset = '1' then
                 err_address <= '0';
             elsif instr_decoder = exp_cmd then
-                err_address <= '0';  
+                err_address <= '0';
             elsif curr_instruction = opcode_PCKT_EXC and instr_decoder = exp_slave_r8b_wACK then
                 if timeout_cnt = TIMEOUT-1 then
-                    err_address <= '1';                
-                end if; 
+                    err_address <= '1';
+                end if;
             elsif err_addr = '1' then
                 err_address <= '1';
             end if;
@@ -1016,7 +1018,7 @@ begin
             elsif instr_decoder = wait_master_1st_ACK_rd or instr_decoder = wait_master_end_ACK_rd then
                 if TXeni = '1' and TXrdy = '1' then
                     err_fifo <= '0';
-                end if;                
+                end if;
             end if;
         end if;
     end process;
@@ -1040,7 +1042,7 @@ begin
             if reset = '1' then
                 err_timeout <= '0';
             elsif instr_decoder = exp_cmd then
-                err_timeout <= '0';                
+                err_timeout <= '0';
             elsif timeout_cnt = TIMEOUT-1 then
                 if (curr_instruction /= opcode_PCKT_EXC or instr_decoder /= exp_slave_r8b_wACK) and err_address = '0' then
                     err_timeout <= '1';
@@ -1048,7 +1050,7 @@ begin
             end if;
         end if;
     end process;
-    
+
     process(clk)
     begin
         if rising_edge(clk) then
@@ -1062,7 +1064,7 @@ begin
                             timeout_cnt <= timeout_cnt + 1;
                         end if;
                     when others =>
-                        timeout_cnt <= 0;                        
+                        timeout_cnt <= 0;
                 end case;
             end if;
         end if;
