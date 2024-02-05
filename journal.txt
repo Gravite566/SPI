@@ -1,1 +1,13 @@
-Journal Projet SPI :
+SPI Project Journal :
+
+To do :
+
+- SPI module schematic
+- SPI module VHDL + testbenches
+- Python code to manage link between SPI module and Raspberry
+- Python-VHDL Cosimulation (using GHDL)
+
+
+Later :
+
+- Develop a VGA interface using SPI ( Dual-Buffer, other applications ? )
