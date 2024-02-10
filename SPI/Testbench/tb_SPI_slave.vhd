@@ -5,8 +5,7 @@
 --GENERIC   BITS_PER_WORD = 32, 16, 11, 8
 --GENERIC   DEFAULT_VALUE = 21845, 0, -1
 --GENERIC   DROP_NEW_DAT  = 0, 1
-
---
+--GENERIC   MSB_FIRST     = 1, 0
 
 
 library IEEE;
@@ -167,7 +166,9 @@ architecture Behavioral of tb_SPI_slave is
     -- actually performs a fake SPI transfer
     procedure SPI_Xfer(constant value   : in std_logic_vector(BITS_PER_WORD-1 downto 0);    -- value sent by master
                        constant period  : in time;                                          -- SPI clock period
-                       constant rise_SS : in integer range 0 to 1;                          -- should SS be raise at end of transfer ?
+                       constant rise_SS : in integer;                                       -- = 0 : SS is not raised at end of transfer
+                                                                                            -- > 0 : number of half periods befor rising SS)
+                                                                                            -- > 2*BITS_PER_WORD : normal transfer with SS raised at the end
 
                        signal   SS     : out std_logic;                                     -- SPI SS   signal
                        signal   SCK    : out std_logic;                                     -- SPI SCK  signal
@@ -178,48 +179,72 @@ architecture Behavioral of tb_SPI_slave is
 
         variable rxreg      : std_logic_vector(BITS_PER_WORD-1 downto 0);   -- used to build resp without modifying it at each bit reception
         variable period_cnt : integer;                                      -- necessary to manage bit ordering
+        variable locval     : std_logic_vector(BITS_PER_WORD-1 downto 0);   -- local copy of data to send
     begin
+        if MSB_FIRST = 0 then
+            for i in 0 to BITS_PER_WORD-1 loop
+                locval(i) := value(BITS_PER_WORD-1-i);
+            end loop;
+        else
+            locval := value;
+        end if;
+
         SS <= '0';
 
         for i in 1 to BITS_PER_WORD loop
             period_cnt := BITS_PER_WORD - i;
 
-            case SPI_MODE is
-                when      0 => SCK <= '0'; MOSI <= value(period_cnt);
-                when      1 => SCK <= '0';
-                when      2 => SCK <= '1'; MOSI <= value(period_cnt);
-                when      3 => SCK <= '1';
-            end case;
+            if rise_SS > i*2-2 or rise_SS = 0 then
+                case SPI_MODE is
+                    when      0 => SCK <= '0'; MOSI <= locval(period_cnt);
+                    when      1 => SCK <= '0';
+                    when      2 => SCK <= '1'; MOSI <= locval(period_cnt);
+                    when      3 => SCK <= '1';
+                end case;
+            end if;
 
-            wait for period/2;
+            if rise_SS > i*2-1 or rise_SS = 0  then
+                wait for period/2;
 
-            case SPI_MODE is
-                when      0 => SCK <= '1'; rxreg(period_cnt) := MISO;
-                when      1 => SCK <= '1'; MOSI <= value(period_cnt);
-                when      2 => SCK <= '0'; rxreg(period_cnt) := MISO;
-                when      3 => SCK <= '0'; MOSI <= value(period_cnt);
-            end case;
+                case SPI_MODE is
+                    when      0 => SCK <= '1'; rxreg(period_cnt) := MISO;
+                    when      1 => SCK <= '1'; MOSI <= locval(period_cnt);
+                    when      2 => SCK <= '0'; rxreg(period_cnt) := MISO;
+                    when      3 => SCK <= '0'; MOSI <= locval(period_cnt);
+                end case;
+            end if;
 
-            wait for period/2;
+            if rise_SS > i*2 or rise_SS = 0  then
+                wait for period/2;
 
-            case SPI_MODE is
-                when      1 => rxreg(period_cnt) := MISO;
-                when      3 => rxreg(period_cnt) := MISO;
-                when others => null;
-            end case;
+                case SPI_MODE is
+                    when      1 => rxreg(period_cnt) := MISO;
+                    when      3 => rxreg(period_cnt) := MISO;
+                    when others => null;
+                end case;
+            end if;
 
             --report "bit " & integer'image(period_cnt) & ", " & BinImage(rxreg);
         end loop;
 
-        case SPI_MODE is
-            when      0 => SCK <= '0';
-            when      1 => SCK <= '0';
-            when      2 => SCK <= '1';
-            when      3 => SCK <= '1';
-        end case;
+        if rise_SS > BITS_PER_WORD*2 or rise_SS = 0  then
+            case SPI_MODE is
+                when      0 => SCK <= '0';
+                when      1 => SCK <= '0';
+                when      2 => SCK <= '1';
+                when      3 => SCK <= '1';
+            end case;
+        end if;
 
         wait for 1 fs;
-        resp <= rxreg;
+        if MSB_FIRST = 0 then
+            for i in 0 to BITS_PER_WORD-1 loop
+                resp(i) <= rxreg(BITS_PER_WORD-1-i);
+            end loop;
+        else
+            resp <= rxreg;
+        end if;
+
 
 
         if rise_SS > 0 then
@@ -296,11 +321,14 @@ architecture Behavioral of tb_SPI_slave is
     signal new_dut_recv : std_logic := '0';                             -- dut_recv has been updated
     signal ndutrecv_set : std_logic;                                    -- set new_dut_recv
     signal ndutrecv_clr : std_logic;                                    -- clear new_dut_recv
+    signal inhibit_rcv  : std_logic := '0';                             -- to test behavior on read errors : inhibit data read
 
-    signal err_TX_happend : std_logic := '0';                           -- did err_dropped_data_in happen ?
+    signal err_TX_happend : std_logic := '0';                           -- did err_sent_default happen ?
     signal err_TX_set     : std_logic;                                  -- set err_TX_happend
     signal err_TX_reset   : std_logic;                                  -- clear err_TX_happend
 
+    signal err_RX_happend : std_logic := '0';                           -- did err_dropped_data_in happen ?
+    signal err_RX_reset   : std_logic;                                  -- clear err_RX_happend
 
 begin
 
@@ -372,40 +400,125 @@ begin
 --                                                      #
 
     process
-        variable psdata   : std_logic_vector(127 downto 0) := x"FDB97531ECA86420FEDCBA9876543210";
-        variable spi_per  : time;
+        variable psdata           : std_logic_vector(127 downto 0) := x"FDB97531ECA86420FEDCBA9876543210";
+        variable spi_per          : time;
+        variable buffered_TX_data : std_logic_vector(BITS_PER_WORD-1 downto 0);
+        variable expected_TX_data : std_logic_vector(BITS_PER_WORD-1 downto 0);
     begin
-        reset  <= '1';
-        SPI_SS <= '1';
+        report "MODEL         : " & integer'image(MODEL);
+        report "SPI_MODE      : " & integer'image(SPI_MODE);
+        report "MSB_FIRST     : " & integer'image(MSB_FIRST);
+        report "BITS_PER_WORD : " & integer'image(BITS_PER_WORD);
+        report "DEFAULT_VALUE : " & integer'image(DEFAULT_VALUE);
+        report "DROP_NEW_DAT  : " & integer'image(DROP_NEW_DAT);
+
+        -- kind of seed for psdata
+        for i in 0 to BITS_PER_WORD + DROP_NEW_DAT*32 + MSB_FIRST*64 + SPI_MODE*128 loop
+            psdata := psdata(0) & psdata(127 downto 1);
+        end loop;
+
+        reset       <= '1';
+        SPI_SS      <= '1';
         wait for clk_period * 3.1;
         reset <= '0';
         wait for clk_period;
 
-        -- loop to make a series with SS rise, and another series without SS rise
-        for SSrise_bar in 0 to 1 loop
+        buffered_TX_data := DEFAULT_GEN(BITS_PER_WORD-1 downto 0);
 
-            spi_per := 10 us;
-            for i in 0 to 30 loop
+        -- this loop to preload data (or not)
+        for rep_loaded in 0 to 1 loop
 
-                --report time'image(spi_per);
-                report "SPI clock frequency : " & FreqImage(spi_per);
+            -- loop to make a series with SS rise, and another series without SS rise
+            for SSrise_bar in 0 to 1 loop
+                report "-------------------------------------------------------------";
+                report "rep_loaded  = " & integer'image(rep_loaded);
+                report "SS  rise    = " & integer'image(1 - SSrise_bar);
+                report "-------------------------------------------------------------";
 
-                SPI_Xfer(psdata(BITS_PER_WORD-1 downto 0), spi_per, 1 - SSrise_bar, SPI_SS, SPI_SCK, SPI_MOSI, SPI_MISO, dut_sent);
-                if new_dut_recv = '0' then
-                    -- sometimes, SPI_Xfer finishes so fast that dut_recv has not been updated yet...
-                    wait until falling_edge(ndutrecv_set);
-                end if;
-                check_and_clear_err(True, "new_dut_recv", new_dut_recv, ndutrecv_clr);
-                assert dut_sent = DEFAULT_GEN(BITS_PER_WORD-1 downto 0) report "data corruption on TX, expecting " & BinImage(DEFAULT_GEN(BITS_PER_WORD-1 downto 0)) & " got " & BinImage(dut_sent);
-                assert dut_recv = psdata(BITS_PER_WORD-1 downto 0) report "data corruption on RX, expecting " & BinImage(psdata(BITS_PER_WORD-1 downto 0)) & " got " & BinImage(dut_recv);
-                check_and_clear_err(True, "dropped_data_in", err_TX_happend, err_TX_reset);
-                psdata := psdata(0) & psdata(127 downto 1);
-                spi_per := (2*spi_per + TARGET_SPI_PER)/3;
+                spi_per := 10 us;
+                for i in 0 to 30 loop
 
+                    --report time'image(spi_per);
+                    report "SPI clock frequency : " & FreqImage(spi_per);
+
+                    expected_TX_data := buffered_TX_data;
+                    if rep_loaded = 1 then
+                        assert data_to_master_rd = '1' report "DUT not accepting data";
+                        data_to_master    <= psdata(BITS_PER_WORD-1 downto 0);
+                        data_to_master_en <= '1';
+                        wait until rising_edge(clk);
+                        data_to_master_en <= '0';
+                        assert data_to_master_rd = '1' report "TX data not accepted";
+                        buffered_TX_data := psdata(BITS_PER_WORD-1 downto 0);
+                        psdata := psdata(0) & psdata(127 downto 1);
+                    else
+                        buffered_TX_data := DEFAULT_GEN(BITS_PER_WORD-1 downto 0);
+                    end if;
+
+
+                    SPI_Xfer(psdata(BITS_PER_WORD-1 downto 0), spi_per, (1+2*BITS_PER_WORD)*(1 - SSrise_bar), SPI_SS, SPI_SCK, SPI_MOSI, SPI_MISO, dut_sent);
+                    if new_dut_recv = '0' then
+                        -- sometimes, SPI_Xfer finishes so fast that dut_recv has not been updated yet...
+                        wait until falling_edge(ndutrecv_set);
+                    end if;
+                    check_and_clear_err(True, "new_dut_recv", new_dut_recv, ndutrecv_clr);
+                    assert dut_sent = expected_TX_data report "data corruption on TX, expecting " & BinImage(expected_TX_data) & " got " & BinImage(dut_sent);
+                    assert dut_recv = psdata(BITS_PER_WORD-1 downto 0) report "data corruption on RX, expecting " & BinImage(psdata(BITS_PER_WORD-1 downto 0)) & " got " & BinImage(dut_recv);
+
+                    check_and_clear_err(rep_loaded = 0, "send_default", err_TX_happend, err_TX_reset);
+
+                    psdata := psdata(0) & psdata(127 downto 1);
+                    spi_per := (2*spi_per + TARGET_SPI_PER)/3;
+
+                end loop;
             end loop;
         end loop;
+        wait for clk_period*10;
+
+        report "-------------------------------------------------------------";
+        report "now checking data loss on RX flag";
+        inhibit_rcv <= '1';
+        SPI_Xfer(psdata(BITS_PER_WORD-1 downto 0), 100 ns, 0, SPI_SS, SPI_SCK, SPI_MOSI, SPI_MISO, dut_sent);
+        if new_dut_recv = '0' then
+            -- sometimes, SPI_Xfer finishes so fast that dut_recv has not been updated yet...
+            wait until falling_edge(ndutrecv_set);
+        end if;
+        assert data_from_master = psdata(BITS_PER_WORD-1 downto 0) report "data corruption on RX, expecting " & BinImage(psdata(BITS_PER_WORD-1 downto 0)) & " got " & BinImage(data_from_master);
+        SPI_Xfer(psdata(BITS_PER_WORD+1 downto 2), 100 ns, 1+2*BITS_PER_WORD, SPI_SS, SPI_SCK, SPI_MOSI, SPI_MISO, dut_sent);
+        wait until err_RX_happend = '1' for 1 us;
+        assert err_RX_happend = '1' report "timeout while waiting for err_dropped_data_in to raise";
+
+        if DROP_NEW_DAT = 0 then
+            assert data_from_master = psdata(BITS_PER_WORD+1 downto 2) report "old word kept, expecting " & BinImage(psdata(BITS_PER_WORD+1 downto 2)) & " got " & BinImage(data_from_master);
+        else
+            assert data_from_master = psdata(BITS_PER_WORD-1 downto 0) report "old word dropped, expecting " & BinImage(psdata(BITS_PER_WORD-1 downto 0)) & " got " & BinImage(data_from_master);
+        end if;
+        inhibit_rcv <= '0';
+        SPI_Xfer(dut_recv, 100 ns, 1+2*BITS_PER_WORD, SPI_SS, SPI_SCK, SPI_MOSI, SPI_MISO, dut_sent);
+        wait for clk_period*10;
+        check_and_clear_err(True, "err_RX_happend", err_RX_happend, err_RX_reset);
+        check_and_clear_err(True, "new_dut_recv", new_dut_recv, ndutrecv_clr);
+        check_and_clear_err(True, "send_default", err_TX_happend, err_TX_reset);
+
 
         wait for clk_period*10;
+        report "-------------------------------------------------------------";
+        report "now checking behavior on incomplete transfer";
+
+        assert data_to_master_rd = '1' report "DUT not accepting data";
+        data_to_master    <= dut_recv;
+        data_to_master_en <= '1';
+        wait until rising_edge(clk);
+        data_to_master_en <= '0';
+        assert data_to_master_rd = '1' report "TX data not accepted";
+
+        for i in 1 to 2*BITS_PER_WORD-2 loop
+            SPI_Xfer(dut_recv, 100 ns, i, SPI_SS, SPI_SCK, SPI_MOSI, SPI_MISO, dut_sent);
+            wait for 100 ns;
+        end loop;
+        assert err_TX_happend      = '0' report "err_TX triggered but no transfer occured";
+        assert data_to_master_rd   = '0' report "DUT should not accept new data";
+        assert data_from_master_en = '0' report "No data received, but data_from_master_en set";
 
         clk_en <= False;
         report "over";
@@ -427,15 +540,35 @@ begin
         data_from_master_rd <= '0';
         ndutrecv_set        <= '0';
         wait until rising_edge(clk) and data_from_master_en = '1';
-        dut_recv            <= data_from_master;
-        data_from_master_rd <= '1';
         ndutrecv_set        <= '1';
-        wait for 1 fs;
-        ndutrecv_set        <= '0';
-        wait until rising_edge(clk);
-        data_from_master_rd <= '0';
-        wait for 1 fs;
-        assert data_from_master_en = '0' report "data_en not cleared after read";
+        if inhibit_rcv = '0' then
+            dut_recv            <= data_from_master;
+            data_from_master_rd <= '1';
+            wait for 1 fs;
+            ndutrecv_set        <= '0';
+            wait until rising_edge(clk);
+            data_from_master_rd <= '0';
+            wait for 1 fs;
+            assert data_from_master_en = '0' report "data_en not cleared after read";
+        else
+            wait for 1 fs;
+            ndutrecv_set        <= '0';
+            wait until inhibit_rcv = '0';
+        end if;
+    end process;
+
+    process
+    begin
+        wait until rising_edge(err_dropped_data_in);
+        wait for clk_period + 1 ps;
+        assert err_dropped_data_in = '0' report "err_dropped_data_in set for more than 1 clock period";
+    end process;
+
+    process
+    begin
+        wait until rising_edge(err_TX_set);
+        wait for clk_period + 1 ps;
+        assert err_TX_set = '0' report "err_sent_default set for more than 1 clock period";
     end process;
 
 
@@ -478,5 +611,17 @@ begin
             new_dut_recv <= '0';
         end if;
     end process;
+
+
+    process(err_RX_reset, err_dropped_data_in)
+    begin
+        if err_dropped_data_in = '1' then
+            err_RX_happend  <= '1';
+        elsif err_RX_reset = '1' then
+            err_RX_happend <= '0';
+        end if;
+    end process;
+
+
 
 end Behavioral;

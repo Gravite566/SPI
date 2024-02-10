@@ -62,7 +62,7 @@ begin
 
     -- manage the emission/reception of data
     process
-        variable bitnum : integer;
+        variable bitnum   : integer;
     begin
         if reset = '1' or SPI_SS = '1' then
             -- here, the module is not supposed to receive anything...
@@ -75,38 +75,54 @@ begin
 
 
         for i in 1 to BITS_PER_WORD loop
-            bitnum := BITS_PER_WORD - i;
+            if MSB_FIRST = '1' then
+                bitnum := BITS_PER_WORD - i;
+            else
+                bitnum := i - 1;
+            end if;
 
             if reset = '0' and SPI_SS = '0' then
                 case SPI_MODE is
                     when      0 =>
                         SPI_MISO <= tx_data(bitnum);
-                        if bitnum = 0 then next_to_tx_load <= '1', '0' after 1 ns; end if;
+                        if i = BITS_PER_WORD then next_to_tx_load <= '1', '0' after 1 ns; end if;
                         wait until rising_edge(SPI_SCK)  or reset = '1' or SPI_SS = '1';
-                        new_data(bitnum) <= SPI_MOSI;
-                        if bitnum = 0 then updt_dat2mstr   <= '1', '0' after 1 ns; end if;
-                        wait until falling_edge(SPI_SCK) or reset = '1' or SPI_SS = '1';
+                        if reset = '0' and SPI_SS = '0' then
+                            new_data(bitnum) <= SPI_MOSI;
+                            if i = BITS_PER_WORD then updt_dat2mstr   <= '1', '0' after 1 ns; end if;
+                            wait until falling_edge(SPI_SCK) or reset = '1' or SPI_SS = '1';
+                        end if;
                     when      1 =>
                         wait until rising_edge(SPI_SCK)  or reset = '1' or SPI_SS = '1';
-                        SPI_MISO <= tx_data(bitnum);
-                        if bitnum = 0 then next_to_tx_load <= '1', '0' after 1 ns; end if;
-                        wait until falling_edge(SPI_SCK) or reset = '1' or SPI_SS = '1';
-                        new_data(bitnum) <= SPI_MOSI;
-                        if bitnum = 0 then updt_dat2mstr   <= '1', '0' after 1 ns; end if;
+                        if reset = '0' and SPI_SS = '0' then
+                            SPI_MISO <= tx_data(bitnum);
+                            if i = BITS_PER_WORD then next_to_tx_load <= '1', '0' after 1 ns; end if;
+                            wait until falling_edge(SPI_SCK) or reset = '1' or SPI_SS = '1';
+                        end if;
+                        if reset = '0' and SPI_SS = '0' then
+                            new_data(bitnum) <= SPI_MOSI;
+                            if i = BITS_PER_WORD then updt_dat2mstr   <= '1', '0' after 1 ns; end if;
+                        end if;
                     when      2 =>
                         SPI_MISO <= tx_data(bitnum);
-                        if bitnum = 0 then next_to_tx_load <= '1', '0' after 1 ns; end if;
+                        if i = BITS_PER_WORD then next_to_tx_load <= '1', '0' after 1 ns; end if;
                         wait until falling_edge(SPI_SCK) or reset = '1' or SPI_SS = '1';
-                        new_data(bitnum) <= SPI_MOSI;
-                        if bitnum = 0 then updt_dat2mstr   <= '1', '0' after 1 ns; end if;
-                        wait until rising_edge(SPI_SCK)  or reset = '1' or SPI_SS = '1';
+                        if reset = '0' and SPI_SS = '0' then
+                            new_data(bitnum) <= SPI_MOSI;
+                            if i = BITS_PER_WORD then updt_dat2mstr   <= '1', '0' after 1 ns; end if;
+                            wait until rising_edge(SPI_SCK)  or reset = '1' or SPI_SS = '1';
+                        end if;
                     when      3 =>
                         wait until falling_edge(SPI_SCK) or reset = '1' or SPI_SS = '1';
-                        SPI_MISO <= tx_data(bitnum);
-                        if bitnum = 0 then next_to_tx_load <= '1', '0' after 1 ns; end if;
-                        wait until rising_edge(SPI_SCK)  or reset = '1' or SPI_SS = '1';
-                        new_data(bitnum) <= SPI_MOSI;
-                        if bitnum = 0 then updt_dat2mstr   <= '1', '0' after 1 ns; end if;
+                        if reset = '0' and SPI_SS = '0' then
+                            SPI_MISO <= tx_data(bitnum);
+                            if i = BITS_PER_WORD then next_to_tx_load <= '1', '0' after 1 ns; end if;
+                            wait until rising_edge(SPI_SCK)  or reset = '1' or SPI_SS = '1';
+                        end if;
+                        if reset = '0' and SPI_SS = '0' then
+                            new_data(bitnum) <= SPI_MOSI;
+                            if i = BITS_PER_WORD then updt_dat2mstr   <= '1', '0' after 1 ns; end if;
+                        end if;
                 end case;
             end if;
         end loop;
@@ -256,13 +272,13 @@ begin
             wait until reset = '0';
         end if;
 
-        wait until rising_edge(clk) and (tx_data_loaded = '1' or (data_to_master_en = '1' and local_data_to_master_rd = '0') or reset = '1');
+        wait until rising_edge(clk) and (tx_data_loaded = '1' or (data_to_master_en = '1' and local_data_to_master_rd = '1') or reset = '1');
         if tx_data_loaded = '1' then
             -- previous data has been used, load defaul value, just in case
             next_data       <= DEFAULT_VALUE(BITS_PER_WORD - 1 downto 0);
             next_data_valid <= '0';
-        elsif data_to_master_en = '1' and local_data_to_master_rd = '0' then
-            -- new data loaded bu user, mark it as ready
+        elsif data_to_master_en = '1' and local_data_to_master_rd = '1' then
+            -- new data loaded by user, mark it as ready
             next_data       <= data_to_master;
             next_data_valid <= '1';
         end if;
