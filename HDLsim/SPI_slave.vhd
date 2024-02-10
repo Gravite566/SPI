@@ -1,4 +1,4 @@
--- This is a synthetizable model for the SPI_slave module
+-- This is a dummy entity for the SPI_slave module, just to make simulation tool compile
 --
 
 

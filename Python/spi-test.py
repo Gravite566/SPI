@@ -1,11 +1,10 @@
-#!/usr/bin/python
-
+# -*- coding: utf-8 -*-
 import spidev
 import time
 
 spi = spidev.SpiDev()
 spi.open(0, 0)
-spi.max_speed_hz = 7629
+spi.max_speed_hz = 15200
 
 # Split an integer input into a two byte array to send via SPI
 def write_pot(input):

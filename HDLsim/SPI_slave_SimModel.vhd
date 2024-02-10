@@ -1,7 +1,6 @@
 -- This is a simulation model for the SPI_slave module
---
---
---
+-- This module is NOT definitive, particularly, data_to_master load should be performed much later
+-- to make it possible to load response data just after a command has been received.
 --
 
 

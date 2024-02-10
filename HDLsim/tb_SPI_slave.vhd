@@ -1,5 +1,5 @@
---SUBMODULE ../SimModel/SPI_slave_SimModel.vhd
---SUBMODULE ../SPI_slave.vhd
+--SUBMODULE SPI_slave_SimModel.vhd
+--SUBMODULE SPI_slave.vhd
 --SIMTIME   20000us
 --GENERIC   SPI_MODE      = 0, 1, 2, 3
 --GENERIC   BITS_PER_WORD = 32, 16, 11, 8
@@ -7,6 +7,8 @@
 --GENERIC   DROP_NEW_DAT  = 0, 1
 --GENERIC   MSB_FIRST     = 1, 0
 
+-- This testbench is not definitive and considers an abnormally early load of response data
+-- resulting in a pipeline/delay in data flowing from slave to master
 
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
