@@ -41,7 +41,7 @@ end tb_SPI_SUB;
 
 architecture Behavioral of tb_SPI_SUB is
 
-component SPI_slave is
+component SPI_slaveV2 is
 
     Port (  clk                 : in  std_logic;                                       -- system clock
             reset               : in  std_logic;                                       -- system reset (active high)
@@ -68,14 +68,14 @@ signal s_clk        : std_logic := '0';
 signal s_rst        : std_logic := '1';
 signal s_spi_ss     : std_logic := '1';
 signal s_spi_sck    : std_logic := '0';
-signal s_spi_MOSI   : std_logic := '0';
+signal s_spi_MOSI   : std_logic;
 signal s_spi_MISO   : std_logic := '0';
 signal s_data_from  : std_logic_vector(BITS_PER_WORD - 1 downto 0);
-signal s_data_to    : std_logic_vector(BITS_PER_WORD - 1 downto 0) := "11011101";
-signal s_data_from_en   : std_logic := '1';
+signal s_data_to    : std_logic_vector(BITS_PER_WORD - 1 downto 0) := "01011001";
+signal s_data_from_en   : std_logic;
 signal s_data_to_en     : std_logic := '1';
 signal s_data_from_rd   : std_logic := '1';
-signal s_data_to_rd     : std_logic := '1';
+signal s_data_to_rd     : std_logic;
 signal s_err_dropdata   : std_logic;
 signal s_err_sentdef    : std_logic;
             
@@ -83,10 +83,14 @@ begin
 
 s_rst <= '0' after 50 ns;
 s_clk <= not(s_clk) after 1 ns;
-s_spi_sck <= not(s_spi_sck) after 11ns;
-s_spi_MOSI <= '1' after 65ns, '0' after 87 ns, '1' after 109 ns, '0' after 131 ns, '0' after 153 ns, '1' after 175 ns, '1' after 197 ns, '1' after 219 ns;
+s_spi_ss <= '0' after 70 ns;
+s_spi_sck <= not(s_spi_sck) after 10 ns;
+s_spi_MOSI <= '1' after 70 ns, '0' after 90 ns, '1' after 110 ns, '0' after 130 ns, '0' after 150 ns, '1' after 170 ns, '1' after 190 ns, '1' after 210 ns,
+              '0' after 230 ns, '0' after 250 ns, '0' after 270 ns, '1' after 290 ns, '1' after 310 ns, '0' after 330 ns, '1' after 350 ns, '0' after 370 ns;
+s_data_to <= "01100111" after 230ns;
 
-tb_spi_sub : SPI_slave
+
+tb_spi_sub : SPI_slaveV2
     Port map (clk => s_clk,
             reset => s_rst,
             SPI_SS => s_spi_ss,
