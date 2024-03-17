@@ -55,87 +55,140 @@ end SPI_slaveV3;
 architecture Behavioral of SPI_slaveV3 is
 
 signal bit_count    : unsigned(5 downto 0):= "000000";
-signal count_rx    : unsigned(5 downto 0):= "000000";
-signal count_tx    : unsigned(5 downto 0):= "000000";
+signal reg_count    : unsigned(5 downto 0):= "000000";
 
 signal last_sck     : std_logic := '0';
+signal front_montant    : std_logic := '0';
+signal front_descendant : std_logic := '0';
+
+signal word_end : std_logic := '0';
+signal load_complete : std_logic := '0';
+
+signal data_tx : std_logic := '0';
+signal data_rx : std_logic := '0';
+
+
 signal word_in_mem  : std_logic_vector(BITS_PER_WORD - 1 downto 0); --Mot binaire en mémoire (mot a envoyer qui laisse place au mot recu)
 begin
 
--- Compteur de bits deja recus
+-- Compteur de bits deja recus et detecteur de fronts
 counter : process (clk)
 begin
     if (rising_edge(clk)) then
+        front_montant    <= '0';
+        front_descendant <= '0';
         if (reset = '1') then 
-            count_rx <= "000000";
-            count_tx <= "000000";
-            word_in_mem <= (others => '0');
+            bit_count <= "000000";
         elsif (SPI_SS = '1') then
-            count_rx <= "000000";
-            count_tx <= "000000";
-            word_in_mem <= (others => '0');
+            bit_count <= "000000";
         elsif (SPI_SCK = '1') then
             if (last_sck = '0') then --Front montant de SCK, gestion de l'envoi
-                if (count_tx < BITS_PER_WORD) then
-                    count_tx <= count_tx + 1;
-                elsif (count_tx = BITS_PER_WORD) then -- Dernier bit a envoyer
-                    count_tx <= "000000";
+                front_montant <= '1';
+                last_sck      <= '1';
+                if (bit_count < BITS_PER_WORD) then
+                    bit_count <= bit_count + 1;
+                else
+                    bit_count <= "000000";
                 end if;
-                last_sck <= '1';
-            else
+            else         
                 last_sck <= '1';
             end if;
         elsif last_sck = '1' then --Front descendant de SCLK, gestion de la réception
-            if (count_rx < BITS_PER_WORD) then
-                count_rx <= count_rx + 1;
-            elsif (count_rx = BITS_PER_WORD) then -- Dernier bit a envoyer
-                count_rx <= "000000";
+            front_descendant <= '1';
+            last_sck         <= '0';
+        end if;
+    end if;
+end process;
+
+
+tx_mod : process(clk)
+begin
+    if (rising_edge(clk)) then
+        if (reset = '1') then 
+            SPI_MISO <= '0';
+        elsif (SPI_SS = '1') then
+            SPI_MISO <= '0';
+        elsif (SPI_SCK = '1') then
+            SPI_MISO <= data_tx;
+        end if;
+    end if;
+end process;
+
+
+rx_mod : process(clk)
+begin
+    if (rising_edge(clk)) then
+        if (reset = '1') then 
+            data_rx <= '0';
+        elsif (SPI_SS = '1') then
+            data_rx <= '0';
+        elsif (SPI_SCK = '1') then
+            data_rx <= SPI_MOSI;
+        end if;
+    end if;
+end process;
+
+
+shift_register : process(clk)
+begin
+    if (rising_edge(clk)) then
+        if (reset = '1') then 
+            word_in_mem <= (others => '0');
+            data_from_master_en <= '0';
+            data_to_master_rd   <= '0';
+            err_dropped_data_in <= '0';
+            err_sent_default    <= '0';
+            load_complete       <= '0';
+        elsif (SPI_SS = '1') then
+            word_in_mem <= (others => '0');
+            data_from_master_en <= '0';
+            data_to_master_rd   <= '0';
+            err_dropped_data_in <= '0';
+            err_sent_default    <= '0';
+            load_complete       <= '0';
+        elsif (bit_count = 0) then --Aucune donnée encore envoyée, initialisation
+            if (load_complete = '0') then
+                if (data_to_master_en = '1') then   --si data a envoyer, on la prepare en la recopiant dans le registre
+                    data_to_master_rd <= '1';
+                    word_in_mem <= data_to_master;
+                    data_tx <= word_in_mem(BITS_PER_WORD - 1);
+                    load_complete <= '1';
+                elsif (data_to_master_en = '0') then --sinon envoi de la valeur par defaut et signal d'erreur
+                    word_in_mem <= DEFAULT_VALUE(BITS_PER_WORD - 1 downto 0);
+                    err_sent_default <= '1';
+                    data_tx <= word_in_mem(BITS_PER_WORD - 1);
+                    load_complete <= '1';
+                end if;
+            elsif (front_descendant = '1') then
+                    word_in_mem <= word_in_mem(BITS_PER_WORD - 2 downto 0) & '0';
+                    word_in_mem(0) <= data_rx;
             end if;
-            last_sck <= '0';
-        end if;
-    end if;
-end process;
-
-tx_mod : process(count_tx)
-begin
-    if (count_tx = 0) then --Aucune donnée encore envoyée, initialisation
-        if (data_to_master_en = '1') then --si data a envoyer, on la prepare en la recopiant dans le registre, puis on indique qu'elle est prete
-           word_in_mem <= data_to_master;  
-           data_to_master_rd <= '1';
-           SPI_MISO <= word_in_mem(BITS_PER_WORD - 1);
-        else  --sinon envoi de la valeur par defaut et signal d'erreur
-            word_in_mem <= DEFAULT_VALUE(BITS_PER_WORD - 1 downto 0);
-            err_sent_default <= '1';       
-        end if;
-    elsif (count_tx < BITS_PER_WORD) then -- Mot en cours d'envoi
-        SPI_MISO <= word_in_mem(BITS_PER_WORD - 1);
-        data_to_master_rd <= '0';
-        count_tx <= count_tx + 1;
-    elsif (count_tx = BITS_PER_WORD) then -- Dernier bit a envoyer
-        SPI_MISO <= word_in_mem(BITS_PER_WORD - 1);
-        data_to_master_rd <= '0';
-    else --Problème de comptage, à traiter
-        word_in_mem <= (others => '0');
-        data_to_master_rd <= '0';
-    end if;
-end process;
-
-rx_mod : process(count_rx) --rajouter autres signaux
-begin
-        if (count_rx < BITS_PER_WORD) then --Mot en cours de réception
+        elsif (bit_count < BITS_PER_WORD) then --Mot en cours de réception
+            load_complete <= '0';
+            if (front_montant = '1') then
+                data_tx <= word_in_mem(BITS_PER_WORD - 1);
+            elsif (front_descendant = '1') then
                 word_in_mem <= word_in_mem(BITS_PER_WORD - 2 downto 0) & '0';
-                word_in_mem(0) <= SPI_MOSI;
-                data_from_master_en <= '0';
-                err_dropped_data_in <= '0';
-                count_rx <= count_rx + 1;
-        elsif (count_rx = BITS_PER_WORD) then -- Dernier bit a envoyer
-            if (data_from_master_rd = '1') then
-                data_from_master_en <= '1';
-                data_from_master <= word_in_mem;
-            else
-                err_dropped_data_in <= '1'; --gestion du drop_new_dat ici
+                word_in_mem(0) <= data_rx;
             end if;
-        end if;
+        elsif (bit_count = BITS_PER_WORD) then -- Dernier bit a envoyer
+            if (front_montant = '1') then
+                data_tx <= word_in_mem(BITS_PER_WORD - 1);
+            elsif (front_descendant = '1') then
+                word_in_mem <= word_in_mem(BITS_PER_WORD - 2 downto 0) & '0';
+                word_in_mem(0) <= data_rx;
+                word_end <= '1';
+            elsif (word_end = '1') then
+                if (data_from_master_rd = '1') then
+                    data_from_master_en <= '1';
+                    data_from_master <= word_in_mem;
+                else
+                    err_dropped_data_in <= '1'; --gestion du drop_new_dat ici
+                end if;
+                word_end <= '0';
+            end if;
+        end if;               
+    end if;               
 end process;
 
 end Behavioral;
