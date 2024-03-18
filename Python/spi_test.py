@@ -8,7 +8,7 @@ import sys
 
 if len(sys.argv)==1:
     print(sys.argv)
-    raise Exception("FONCTIONNE")
+    raise Exception("CACA")
 
 # Open SPI bus
 computer = Device(dev=None,speed=1000000)
