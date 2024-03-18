@@ -75,20 +75,26 @@ begin
 counter : process (clk)
 begin
     if (rising_edge(clk)) then
-        front_montant    <= '0';
-        front_descendant <= '0';
         if (reset = '1') then 
             bit_count <= "000000";
+            front_montant    <= '0';
+            front_descendant <= '0';
+            last_sck         <= '0';
         elsif (SPI_SS = '1') then
             bit_count <= "000000";
+            front_montant    <= '0';
+            front_descendant <= '0';
+            last_sck         <= '0';
         elsif (SPI_SCK = '1') then
+            front_montant    <= '0';
+            front_descendant <= '0';
             if (last_sck = '0') then --Front montant de SCK, gestion de l'envoi
                 front_montant <= '1';
                 last_sck      <= '1';
                 if (bit_count < BITS_PER_WORD) then
                     bit_count <= bit_count + 1;
                 else
-                    bit_count <= "000000";
+                    bit_count <= "000001";
                 end if;
             else         
                 last_sck <= '1';
@@ -146,12 +152,12 @@ begin
             err_dropped_data_in <= '0';
             err_sent_default    <= '0';
             load_complete       <= '0';
-        elsif (bit_count = 0) then --Aucune donnée encore envoyée, initialisation
+        elsif (bit_count = 1) then --Aucune donnée encore envoyée, initialisation
             if (load_complete = '0') then
                 if (data_to_master_en = '1') then   --si data a envoyer, on la prepare en la recopiant dans le registre
                     data_to_master_rd <= '1';
                     word_in_mem <= data_to_master;
-                    data_tx <= word_in_mem(BITS_PER_WORD - 1);
+                    data_tx <= data_to_master(BITS_PER_WORD - 1);
                     load_complete <= '1';
                 elsif (data_to_master_en = '0') then --sinon envoi de la valeur par defaut et signal d'erreur
                     word_in_mem <= DEFAULT_VALUE(BITS_PER_WORD - 1 downto 0);
