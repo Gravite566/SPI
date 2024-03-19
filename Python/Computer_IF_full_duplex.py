@@ -58,17 +58,17 @@ class Resp_msg:
     def __init__(self, device, expected):
         self.device      = device
         self.dataok      = 0
-        r = self.device.serial.readbytes(1)[0]
+        r = self.device.spi.receive(1)[0]
         self.expected    = expected #code ACK attendu
         self.received    = r        #code ACK réellement reçu
-        self.ok          = (r & MASK_Resp_Code) == expected #True or False en fonction de si on reçoit ce que l'on veu
+        self.ok          = (r & MASK_Resp_Code) == expected #True or False en fonction de si on reçoit ce que l'on veut
         self.address_err = (r & MASK_Resp_Code) == ACK_Address_Error
         self.timeout_err = (r & MASK_Resp_Code) == ACK_Timeout
         self.nullsize    = (r & MASK_Resp_Code) == ACK_Null_Size
         self.invalid_err = (r & MASK_Resp_Code) == ACK_Invalid_Instruction
         self.FIFO_err    = ((r & MASK_Fifo_err) != 0)
         if (r & MASK_Resp_Code) == ACK_Single:
-            d = self.device.serial.readbytes(2)[0]
+            d = self.device.spi.receive(2)[0]
             self.data = d[0]*256+d[1]
         else:
             self.data = None
@@ -86,7 +86,7 @@ class Resp_msg:
         
     
     def end_of_stream(self):
-        resp = self.device.serial.readbytes(3)[0]
+        resp = self.device.spi.receive(3)[0]
         r = resp[0]
         assert((r & MASK_Resp_Code) == ACK_Stream_End)
         self.address_err = ((r & MASK_Address_Error) != 0)
@@ -110,27 +110,27 @@ class Resp_msg:
     
 class Device:
     def __init__(self, dev, speed=921600):
-        self.serial = spidev.SpiDev()
-        self.serial.open(0,0)
-        self.serial.max_speed_hz=speed
-        self.serial.writebytes([OPCODE_READ_IFVER])
+        self.spi = spidev.SpiDev()
+        self.spi.open(0,0)
+        self.spi.max_speed_hz=speed
+        self.spi.send([OPCODE_READ_IFVER])
         self.IFver = Resp_msg(self, ACK_Single).data
-        self.serial.writebytes([OPCODE_READ_PROJID])
+        self.spi.send([OPCODE_READ_PROJID])
         self.ProjID = Resp_msg(self, ACK_Single).data
 
     def _write_single(self, data, addr):
-        self.serial.writebytes([OPCODE_WRITE_SINGLE, (addr//256)%256, addr%256, (data//256)%256, data%256])
+        self.spi.send([OPCODE_WRITE_SINGLE, (addr//256)%256, addr%256, (data//256)%256, data%256])
         return Resp_msg(self, ACK_Short)
         
     def _read_single(self, addr):
-        self.serial.writebytes([OPCODE_READ_SINGLE, (addr//256)%256, addr%256])
+        self.spi.send([OPCODE_READ_SINGLE, (addr//256)%256, addr%256])
         return Resp_msg(self, ACK_Single)
 
     def _read_map(self, addr, length):
-        self.serial.writebytes([OPCODE_READ_MAP, (addr//256)%256, addr%256, (length//256)%256, length%256])
+        self.spi.send([OPCODE_READ_MAP, (addr//256)%256, addr%256, (length//256)%256, length%256])
         r=Resp_msg(self,ACK_Stream_Start)
         if r.ok:
-            dat = self.serial.readbytes(length*2)
+            dat = self.spi.receive(length*2)
             resp_data = [dat[i]*256+dat[i+1] for i in range(0, length*2, 2)]
             r.end_of_stream()
             resp_data = resp_data[:r.dataok]
@@ -138,10 +138,10 @@ class Device:
         return []
 
     def _read_FIFO(self, addr, length):
-        self.serial.writebytes([OPCODE_READ_FIFO, (addr//256)%256, addr%256, (length//256)%256, length%256]) 
+        self.spi.send([OPCODE_READ_FIFO, (addr//256)%256, addr%256, (length//256)%256, length%256]) 
         r = Resp_msg(self, ACK_Stream_Start)
         if r.ok:
-            dat = self.serial.readbytes(length*2)
+            dat = self.spi.receive(length*2)
             resp_data = [dat[i]*256+dat[i+1] for i in range(0, length*2, 2)]
             r.end_of_stream()
             resp_data = resp_data[:r.dataok]
@@ -150,26 +150,26 @@ class Device:
 
     def _write_map(self, addr, data): 
         length = len(data)
-        self.serial.writebytes([OPCODE_WRITE_MAP, (addr//256)%256, addr%256, (length//256)%256, length%256, (data[0]//256)%256, data[0]%256])
+        self.spi.send([OPCODE_WRITE_MAP, (addr//256)%256, addr%256, (length//256)%256, length%256, (data[0]//256)%256, data[0]%256])
         r = Resp_msg(self, ACK_Short)
         if r.ok:
             dat = [i.to_bytes(2, byteorder='big') for i in data[1:]]
-            self.serial.writebytes([b''.join(dat)])
+            self.spi.send([b''.join(dat)])
             r.end_of_stream()
         return r
 
     def _write_FIFO(self, addr, data):
         length = len(data)
-        self.serial.writebytes([OPCODE_WRITE_FIFO, (addr//256)%256, addr%256, (length//256)%256, length%256, (data[0]//256)%256, data[0]%256])
+        self.spi.send([OPCODE_WRITE_FIFO, (addr//256)%256, addr%256, (length//256)%256, length%256, (data[0]//256)%256, data[0]%256])
         r = Resp_msg(self, ACK_Short)
         if r.ok:
             dat = [i.to_bytes(2, byteorder='big') for i in data[1:]]
-            self.serial.writebytes([b''.join(dat)])
+            self.spi.send([b''.join(dat)])
             r.end_of_stream()
         return r
 
     def _nop(self):
-        self.serial.writebytes([OPCODE_NOP])
+        self.spi.send([OPCODE_NOP])
         return Resp_msg(self, ACK_Short)
 
     def __getitem__(self, addr):
@@ -229,3 +229,60 @@ class Device:
 
         return self._write_single(data, addr).exception()
 
+
+
+class FIFO:
+    def __init__(self, size=1024):
+        self.size = size
+        self.index = 0
+        self.fifo = []
+        self.length = len(self.fifo)
+
+    def fill_fifo(self, data):
+        if self.index < self.size:
+            self.fifo.append(data)
+            self.index += 1
+        else:
+            raise Exception("FIFO is full")
+
+    def empty_fifo(self):
+        if self.index > 0:
+            r = self.fifo[0]
+            self.fifo.pop(0)
+            self.index -= 1
+            return r
+        else:
+            raise Exception("FIFO is empty")
+
+
+
+
+class SpiDev(spidev.SpiDev):
+    
+    def __init__():
+        super().__init__()
+        self.fifo = FIFO()
+
+    def receive(self,length):
+        i=0
+        self.reponse=[]
+        while i < length :
+            if(self.fifo.length=0):                                 #si la la fifo est vide donc rien à lire
+                self.fifo.fill_fifo=xfer([OPCODE_NOP])              #on envoie des nop pour avoir la réponse
+            else :
+                self.reponse.append(self.fifo.empty_fifo())         #on lit les données une par une dans la fifo 
+                i++
+        return self.reponse
+
+
+
+    def send(self,data): 
+        if(self.fifo.length == self.fifo.size):                 #si la fifo est pleine 
+            raise Exception("FIFO full")
+        else :
+            self.fifo.fill_fifo=xfer([data])
+
+
+
+
+#Pas obligé de restreindre la fifo en soft ? 
